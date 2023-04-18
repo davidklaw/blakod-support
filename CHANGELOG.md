@@ -6,4 +6,9 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [1.0.0] - 2023-04-17
+
+### Added
 - Initial release
+- Adds support for syntax highlighting
+- Adds support for document symbols (i.e. Outline view)
