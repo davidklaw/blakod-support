@@ -1,3 +1,4 @@
+import { create } from 'domain';
 import * as vscode from 'vscode';
 
 // This method is called when your extension is activated
@@ -13,140 +14,264 @@ class KodDocumentSymbolProvider implements vscode.DocumentSymbolProvider {
 			document: vscode.TextDocument,
 			token: vscode.CancellationToken): Promise<vscode.DocumentSymbol[]> {
 			return new Promise((resolve, reject) => {
+
 				let symbols: vscode.DocumentSymbol[] = [];
-				
-				// Once we're parsing messages, don't parse any of the previous sections
-				let inMessages = false;
+				let documentText = document.getText();
 
-				let classRegex 		= /^(?!end\b)([A-Za-z]+)\b(?!:)/;
-				let sectionRegex 	= /^([A-Za-z]+)\b(?=:)/;
-				let resourceRegex = /^[ \t]*([a-z_]+)\s+=\s+(.*)/;
-				let classvarRegex = /^[ \t]*([v][a-zA-Z_]+)\s+=\s+([^\s%]*)/;
-				let propertyRegex = /^[ \t]*([p][a-zA-Z_]+)\s+=\s+([^\s%]*)/;
-				let messageRegex 	= /^\s*(?!.*[@#"])([A-Z]\w+)\s*\((.*)\)/;
+				// Find the class name and create a symbol for it
+				// This symbol will serve as the parent for all other symbols
+				let classMatch = /\n(\w+)/.exec(documentText);
 
-				let currentParentName = "";
+				// If we found the class name, continue building the symbol tree
+				if (classMatch) {
+					let classSymbol = new vscode.DocumentSymbol(
+						classMatch[1],
+						"",
+						vscode.SymbolKind.Class,
+						new vscode.Range(
+							document.positionAt(documentText.indexOf(classMatch[0]) + 1),
+							document.positionAt(documentText.indexOf(classMatch[0]) + classMatch[0].length)
+						),
+						new vscode.Range(
+							document.positionAt(documentText.indexOf(classMatch[0]) + 1),
+							document.positionAt(documentText.indexOf(classMatch[0]) + classMatch[0].length)
+						)
+					);
+					symbols.push(classSymbol);
 
-				for (let i = 0; i < document.lineCount; i++) {
-					let line = document.lineAt(i);
-					let match = line.text.match(classRegex);
-						
-					if (!inMessages) {
-						if (match) {
-							let symbol = new vscode.DocumentSymbol(
-								match[1],
-								"",
-								vscode.SymbolKind.Class,
-								line.range,
-								line.range
-							);
-							symbols.push(symbol);
+					//
+					// CONSTANTS:
+					// 
+					let sectionMatch = /(constants):\s*(.*?)\nresources:\n/s.exec(documentText);
+					if (sectionMatch) {
+						let sectionSymbol = new vscode.DocumentSymbol(
+							sectionMatch[1],
+							"",
+							vscode.SymbolKind.Namespace,
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							),
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							)
+						);
+						classSymbol.children.push(sectionSymbol);					
 
-							// Continue to the next line of the document
-							continue;
-						}
+						// Let's only look at the relevant text for this section
+						let selectionText = sectionMatch[2];
 
-						// Continue to parse the document for sections
-						match = line.text.match(sectionRegex);
-						if (match) {
-							let symbol = new vscode.DocumentSymbol(
-								match[1],
-								"",
-								vscode.SymbolKind.Namespace,
-								line.range,
-								line.range
-							);
-							// symbols.push(symbol);
-
-							// Save symbol as a child of the first symbol
-							symbols[0].children.push(symbol);
-							
-							currentParentName = match[1];
-
-							continue;
-						}
-
-						// Continue to parse the document for resources
-						match = line.text.match(resourceRegex);
-						if (match) {
-							let symbol = new vscode.DocumentSymbol(
-								match[1],
-								match[2],
-								vscode.SymbolKind.Variable,
-								line.range,
-								line.range
-							);
-
-							symbols[0].children.forEach((section) => {
-								if (section.name === currentParentName) {
-									section.children.push(symbol);
-								}
-							});
-						
-							continue;
-						}
-
-						// Continue to parse the document for classvars
-						match = line.text.match(classvarRegex);
-						if (match) {
-							let symbol = new vscode.DocumentSymbol(
-								match[1],
-								match[2],
-								vscode.SymbolKind.Variable,
-								line.range,
-								line.range
-							);
-							
-							symbols[0].children.forEach((section) => {
-								if (section.name === currentParentName) {
-									section.children.push(symbol);
-								}
-							});
-
-							continue;
-						}
-
-						// Continue to parse the document for properties
-						match = line.text.match(propertyRegex);
-						if (match) {
-							let symbol = new vscode.DocumentSymbol(
-								match[1],
-								match[2],
-								vscode.SymbolKind.Variable,
-								line.range,
-								line.range
-							);
-							
-							symbols[0].children.forEach((section) => {
-								if (section.name === currentParentName) {
-									section.children.push(symbol);
-								}
-							});
-
-							continue;
+						if (selectionText) {
+							let childrenRegex = /^\s*([A-Z_]+)\s*=\s*(.*)\s*$/mg;
+							let childrenMatch = childrenRegex.exec(selectionText);
+							while(childrenMatch) {
+								sectionSymbol.children.push(new vscode.DocumentSymbol(
+									childrenMatch[1],
+									childrenMatch[2],
+									vscode.SymbolKind.Constant,
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									),
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									)
+								));
+								
+								// next childrenMatch
+								childrenMatch = childrenRegex.exec(selectionText);
+							}
 						}
 					}
 
-					// Continue to parse the document for messages
-					match = line.text.match(messageRegex);
-					if (match) {
-						inMessages = true;
-
-						let symbol = new vscode.DocumentSymbol(
-							match[1],
-							match[2],
-							vscode.SymbolKind.Method,
-							line.range,
-							line.range
+					//
+					// RESOURCES:
+					// 
+					sectionMatch = /(resources):\s*(.*?)\nclassvars:\n/s.exec(documentText);
+					if (sectionMatch) {
+						let sectionSymbol = new vscode.DocumentSymbol(
+							sectionMatch[1],
+							"",
+							vscode.SymbolKind.Namespace,
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							),
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							)
 						);
-						
-						symbols[0].children.forEach((section) => {
-							if (section.name === currentParentName) {
-								section.children.push(symbol);
-							}
-						});
+						classSymbol.children.push(sectionSymbol);					
 
-						continue;
+						// Let's only look at the relevant text for this section
+						let selectionText = sectionMatch[2];
+
+						if (selectionText) {
+							let childrenRegex = /([A-Za-z0-9_]+)\s*=\s*\\?\s*(.*?)$/gm;
+							let childrenMatch = childrenRegex.exec(selectionText);
+							while(childrenMatch) {
+								sectionSymbol.children.push(new vscode.DocumentSymbol(
+									childrenMatch[1],
+									childrenMatch[2],
+									vscode.SymbolKind.Constant,
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									),
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									)
+								));
+								
+								// next childrenMatch
+								childrenMatch = childrenRegex.exec(selectionText);
+							}
+						}
+					}
+
+					//
+					// CLASSVARS:
+					// 
+					sectionMatch = /(classvars):\s*(.*?)\nproperties:\n/s.exec(documentText);
+					if (sectionMatch) {
+						let sectionSymbol = new vscode.DocumentSymbol(
+							sectionMatch[1],
+							"",
+							vscode.SymbolKind.Namespace,
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							),
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							)
+						);
+						classSymbol.children.push(sectionSymbol);					
+
+						// Let's only look at the relevant text for this section
+						let selectionText = sectionMatch[2];
+
+						if (selectionText) {
+							let childrenRegex = /([A-Za-z0-9_]+)\s*=\s*\\?\s*(.*?)$/gm;
+							let childrenMatch = childrenRegex.exec(selectionText);
+							while(childrenMatch) {
+								sectionSymbol.children.push(new vscode.DocumentSymbol(
+									childrenMatch[1],
+									childrenMatch[2],
+									vscode.SymbolKind.Constant,
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									),
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									)
+								));
+								
+								// next childrenMatch
+								childrenMatch = childrenRegex.exec(selectionText);
+							}
+						}
+					}
+
+					//
+					// PROPERTIES:
+					// 
+					sectionMatch = /(properties):\s*(.*?)\nmessages:\n/s.exec(documentText);
+					if (sectionMatch) {
+						let sectionSymbol = new vscode.DocumentSymbol(
+							sectionMatch[1],
+							"",
+							vscode.SymbolKind.Namespace,
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							),
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							)
+						);
+						classSymbol.children.push(sectionSymbol);					
+
+						// Let's only look at the relevant text for this section
+						let selectionText = sectionMatch[2];
+
+						if (selectionText) {
+							let childrenRegex = /([A-Za-z0-9_]+)\s*=\s*\\?\s*(.*?)$/gm;
+							let childrenMatch = childrenRegex.exec(selectionText);
+							while(childrenMatch) {
+								sectionSymbol.children.push(new vscode.DocumentSymbol(
+									childrenMatch[1],
+									childrenMatch[2],
+									vscode.SymbolKind.Constant,
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									),
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									)
+								));
+								
+								// next childrenMatch
+								childrenMatch = childrenRegex.exec(selectionText);
+							}
+						}
+					}
+
+					//
+					// MESSAGES:
+					// 
+					sectionMatch = /^(messages):\s*(.*)(?=\nend)/gms.exec(documentText);
+					if (sectionMatch) {
+						let sectionSymbol = new vscode.DocumentSymbol(
+							sectionMatch[1],
+							"",
+							vscode.SymbolKind.Namespace,
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							),
+							new vscode.Range(
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + 1),
+								document.positionAt(documentText.indexOf(sectionMatch[0]) + sectionMatch[0].length)
+							)
+						);
+						classSymbol.children.push(sectionSymbol);					
+
+						// Let's only look at the relevant text for this section
+						let selectionText = sectionMatch[2];
+
+						if (selectionText) {
+							let childrenRegex = /^\s*(?!.*[@#"])([A-Z]\w+)\s*\((\s*\w*\s*=.*)*\)\s*("[^"]*"\s*)*{/gm;
+							let childrenMatch = childrenRegex.exec(selectionText);
+							while(childrenMatch) {
+								sectionSymbol.children.push(new vscode.DocumentSymbol(
+									childrenMatch[1],
+									childrenMatch[2],
+									vscode.SymbolKind.Constant,
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									),
+									new vscode.Range(
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + 1),
+										document.positionAt(documentText.indexOf(childrenMatch[0]) + childrenMatch[0].length)
+									)
+								));
+								
+								// next childrenMatch
+								childrenMatch = childrenRegex.exec(selectionText);
+							}
+						}
 					}
 				}
 
