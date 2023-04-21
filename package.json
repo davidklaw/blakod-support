@@ -2,6 +2,7 @@
   "name": "blakod-support",
   "displayName": "Blakod Support",
   "description": "Scripting language used for the MMORPG, Meridian 59",
+  "repository": "https://github.com/davidklaw/blakod-support",
   "version": "0.0.1",
   "engines": {
     "vscode": "^1.77.0"
